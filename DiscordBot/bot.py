@@ -10,6 +10,11 @@ from report import Report
 import pdb
 import uuid
 
+#import apis
+from classifiers.gpt import gpt_classify
+from classifiers.perspective import perspective_classify
+from classifiers.classify import predict_classify
+
 # Set up logging to the console
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -479,32 +484,66 @@ class ModBot(discord.Client):
         if not message.channel.name == f'group-{self.group_num}' and not message.channel.name == f'group-{self.group_num}-mod':
             return
         
+        mod_channel = self.mod_channels[message.guild.id]
         if message.channel.name == f'group-{self.group_num}-mod':
-            mod_channel = self.mod_channels[message.guild.id]
             # Process messages within moderator 
             await handle_mod_response(self, message, mod_channel)
             return
 
         # Forward the message to the mod channel
-        # await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-        # scores = self.eval_text(message.content)
-        # await mod_channel.send(self.code_format(scores))
+        await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
+        scores = self.eval_text(message.content)
+        severity = self.calculate_severity(*scores)
+        await mod_channel.send(self.code_format(message.content, severity))
 
     def eval_text(self, message):
         ''''
         TODO: Once you know how you want to evaluate messages in your channel, 
         insert your code here! This will primarily be used in Milestone 3. 
         '''
-        return message
+        gpt_score = gpt_classify(message)
+        perspective_score = perspective_classify(message)
+        naive_bayes_score, logistic_reg_score = predict_classify(message)
+        
+        print('gpt_score: ', gpt_score)
+        print('perspective_score: ', perspective_score)
+        print('naive_bayes_score: ', naive_bayes_score)
+        print('logistic_reg_score: ', logistic_reg_score)
+
+        return gpt_score, perspective_score, naive_bayes_score, logistic_reg_score
+
+
+    def calculate_severity(self, gpt_score, perspective_score, naive_bayes_score, logistic_reg_score):
+        if (naive_bayes_score == 0 and logistic_reg_score == 0):
+            if gpt_score == 'None':
+                return 1
+            if gpt_score == 'Mild':
+                return 2
+            # if gpt_score  == 'Moderate' or perspective_score < 0.6:
+            #     return 3
+            return 3
+        
+        if ((naive_bayes_score == 0 and logistic_reg_score == 1) or (naive_bayes_score == 1 and logistic_reg_score == 0)):
+            if gpt_score == 'None' or gpt_score == 'Mild':
+                return 2
+            if gpt_score  == 'Moderate' and (perspective_score < 0.6 and perspective_score > 0.3): 
+                return 3
+            return 4
+        
+        if (naive_bayes_score == 1 and logistic_reg_score == 1):
+            if gpt_score == 'None' or gpt_score == 'Mild' or gpt_score  == 'Moderate':
+                return 3
+            return 4
+        return 1 # technically shouldn't ever get here/run
 
     
-    def code_format(self, text):
+    def code_format(self, message, severity):
         ''''
         TODO: Once you know how you want to show that a message has been 
         evaluated, insert your code here for formatting the string to be 
         shown in the mod channel. 
         '''
-        return "Evaluated: '" + text+ "'"
+        return "Evaluated: '" + message + "' with Severity " + str(severity)
 
 
 client = ModBot()
