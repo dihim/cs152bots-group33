@@ -25,6 +25,16 @@ handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w'
 handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
 logger.addHandler(handler)
 
+# database set up 
+LOCAL = False
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
+cred = credentials.Certificate("firebase_auth.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+
 # There should be a file called 'tokens.json' inside the same folder as this file
 token_path = 'tokens.json'
 if not os.path.isfile(token_path):
@@ -40,16 +50,75 @@ class ReportDatabase:
         self.report_log = []
     
     def add_report(self, report):
-        self.reports.append(report)
+        if LOCAL:
+            self.reports.append(report)
+        else:
+            # use firebase admin to add report to database (reports)
+            # AttributeError: module 'firebase_admin' has no attribute 'firestore'
+            db = firebase_admin.firestore.client()
+            doc_ref = db.collection(u'reports').document(str(report.id))
+            doc_ref.set({
+                u'fromUserID': report.fromUserID,
+                u'againstUserID': report.againstUserID,
+                u'reportMethod': report.reportMethod,
+                u'abuseType': report.abuseType,
+                u'status': report.status,
+                u'immediateDanger': report.immediateDanger,
+                u'timestamp': report.timestamp,
+                u'priorityType': report.priorityType,
+                u'serverity': report.serverity,
+                u'userReport': json.dumps(report.userReport),
+                u'fromUserFalseReport': report.fromUserFalseReport,
+                u'detected_serverity': report.detected_serverity,
+                u'gpt_score': report.gpt_score,
+                u'perspective_score': report.perspective_score,
+                u'naive_bayes_score': report.naive_bayes_score,
+                u'logistic_reg_score': report.logistic_reg_score
+            })
+            self.reports.append(report)
+            print("Report added to database")
 
     def add_report_log(self, report):
-        self.report_log.append(report)
+        if LOCAL:
+            self.report_log.append(report)
+        else:
+            # use firebase admin to add report to database (report_logs)
+            db = firebase_admin.firestore.client()
+            doc_ref = db.collection(u'report_logs').document(str(report.id))
+            doc_ref.set({
+                u'fromUserID': report.fromUserID,
+                u'againstUserID': report.againstUserID,
+                u'reportMethod': report.reportMethod,
+                u'abuseType': report.abuseType,
+                u'status': "resolved",
+                u'immediateDanger': report.immediateDanger,
+                u'timestamp': report.timestamp,
+                u'priorityType': report.priorityType,
+                u'serverity': report.serverity,
+                u'userReport': json.dumps(report.userReport),
+                u'fromUserFalseReport': report.fromUserFalseReport,
+                u'detected_serverity': report.detected_serverity,
+                u'gpt_score': report.gpt_score,
+                u'perspective_score': report.perspective_score,
+                u'naive_bayes_score': report.naive_bayes_score,
+                u'logistic_reg_score': report.logistic_reg_score
+            })
+            self.report_log.append(report)
+            print("Report added to report log")
 
     def get_next_report(self):
         return self.reports[0]
     
     def remove_report(self, report):
-        self.reports.remove(report)
+        if LOCAL:
+            self.reports.remove(report)
+        else:   
+            # use firebase admin to remove report from database (reports)
+            db = firebase_admin.firestore.client()
+            doc_ref = db.collection(u'reports').document(str(report.id))
+            doc_ref.delete()
+            self.reports.remove(report)
+            print("Report removed from database")
 
     # create test data all manunual reports
     def create_test_data(self):
@@ -91,7 +160,7 @@ class ReportDatabase:
         return False
     
 class ModeratorReport:
-    def __init__(self, fromUserID, againstUserID, reportMethod, userReport=None):
+    def __init__(self, fromUserID, againstUserID, reportMethod, userReport=None, detected_serverity=None, gpt_score=None, perspective_score=None, naive_bayes_score=None, logistic_reg_score=None):
         self.id = uuid.uuid4()
         self.fromUserID = fromUserID
         self.againstUserID = againstUserID
@@ -99,11 +168,16 @@ class ModeratorReport:
         self.abuseType = None
         self.status = "pending"
         self.immediateDanger = None
-        self.timestamp = None
+        self.timestamp = firebase_admin.firestore.SERVER_TIMESTAMP
         self.priorityType = None
         self.serverity = None
         self.userReport = userReport
         self.fromUserFalseReport = False
+        self.detected_serverity = detected_serverity
+        self.gpt_score = str(gpt_score)
+        self.perspective_score = str(perspective_score)
+        self.naive_bayes_score = str(naive_bayes_score)
+        self.logistic_reg_score = str(logistic_reg_score)
 
     def assign_serverity(self, serverity):
         self.serverity = serverity
@@ -150,6 +224,27 @@ class IssueQueue:
         self.low_priority = []
         
     def add_report(self, report):
+        if not LOCAL:
+            db = firebase_admin.firestore.client()
+            doc_ref = db.collection(u'issue_queue').document(str(report.id))
+            doc_ref.set({
+                u'fromUserID': report.fromUserID,
+                u'againstUserID': report.againstUserID,
+                u'reportMethod': report.reportMethod,
+                u'abuseType': report.abuseType,
+                u'status': report.status,
+                u'immediateDanger': report.immediateDanger,
+                u'timestamp': report.timestamp,
+                u'priorityType': report.priorityType,
+                u'serverity': report.serverity,
+                u'userReport': json.dumps(report.userReport),
+                u'fromUserFalseReport': report.fromUserFalseReport,
+                u'detected_serverity': report.detected_serverity,
+                u'gpt_score': report.gpt_score,
+                u'perspective_score': report.perspective_score,
+                u'naive_bayes_score': report.naive_bayes_score,
+                u'logistic_reg_score': report.logistic_reg_score
+            })
         if report.priorityType == "low":
             self.low_priority.append(report)
         else:
@@ -165,6 +260,10 @@ class IssueQueue:
             return self.high_priorty[0]
 
     def remove_report(self, issue):
+        if not LOCAL:
+            db = firebase_admin.firestore.client()
+            doc_ref = db.collection(u'issue_queue').document(str(issue.id))
+            doc_ref.delete()
         if issue.priorityType == "low":
             return self.low_priority.remove(issue)
         else:
@@ -211,12 +310,29 @@ async def proccess_pending_reports(self, mod_channel, message):
 
     # First time user presses start processing report
     if self.processing_report_state == -1:
-        await mod_channel.send(f'System: Processing report {report.id}')
-        await mod_channel.send(f'_________________________________________________________')
-        await mod_channel.send(f'User Report:')
-        await mod_channel.send(f'From UserID: {report.fromUserID}')
-        await mod_channel.send(f'User Report: {report.format_user_report()} \n')
-        await mod_channel.send(f'_________________________________________________________')
+        if (report.fromUserID == "System"):
+            await mod_channel.send(f'System: Processing report {report.id}')
+            await mod_channel.send(f'_________________________________________________________')
+            await mod_channel.send(f'System Report:')
+            await mod_channel.send(f'From Automatic System Detection:')
+            await mod_channel.send(f'{report.format_user_report()} \n')
+            await mod_channel.send(f'_________________________________________________________')
+            await mod_channel.send(f'Enter in the actor\'s username for this flagged conversation')
+            self.processing_report_state = -2
+        else:
+            await mod_channel.send(f'System: Processing report {report.id}')
+            await mod_channel.send(f'_________________________________________________________')
+            await mod_channel.send(f'User Report:')
+            await mod_channel.send(f'From UserID: {report.fromUserID}')
+            await mod_channel.send(f'User Report: {report.format_user_report()} \n')
+            await mod_channel.send(f'_________________________________________________________')
+            await mod_channel.send(f'Is this report related to sexual content or child exploitation? (yes/no)')
+            self.processing_report_state = 0
+    
+    # User has already started processing report, asking for actor
+    elif self.processing_report_state == -2:
+        report.againstUserID = message.content
+        await mod_channel.send(f'System: Actor set to {report.againstUserID}')
         await mod_channel.send(f'Is this report related to sexual content or child exploitation? (yes/no)')
         self.processing_report_state = 0
     
@@ -403,6 +519,7 @@ class ModBot(discord.Client):
         self.issue_queue = IssueQueue()
 
         # Process Pending Report States
+        #  -2) automatic report, have user manually add actor
         #  -1) show user report
         #   0) awaiting response for sexual content and child exploitation
         #   1) awaiting response for immediate danger
@@ -494,10 +611,16 @@ class ModBot(discord.Client):
             return
 
         # Forward the message to the mod channel
-        await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
+        #await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
         scores = self.eval_text(message.content)
         severity = self.calculate_severity(*scores)
-        await mod_channel.send(self.code_format(message.content, severity))
+
+        if severity > 1:
+            new_report = ModeratorReport("System", "System", "auto", {"reported_message": message.content, "detected_serverity": str(severity), "gpt_score": str(scores[0]), "perspective_score": str(scores[1]), "naive_bayes_score": str(scores[2]), "logistic_reg_score": str(scores[3])}, str(severity), *scores)
+            #new_report = ModeratorReport("thecoolsaraa123", "rickzipper234", "manual", self.reports[author_id].result) 
+            self.report_database.add_report(new_report)
+
+        #await mod_channel.send(self.code_format(message.content, severity))
 
     def eval_text(self, message):
         ''''
@@ -541,7 +664,6 @@ class ModBot(discord.Client):
         # plt.show()
 
         return gpt_score, perspective_score, naive_bayes_score, logistic_reg_score
-
 
     def calculate_severity(self, gpt_score, perspective_score, naive_bayes_score, logistic_reg_score):
         if (naive_bayes_score == 0 and logistic_reg_score == 0):

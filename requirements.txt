@@ -1,2 +1,9 @@
 requests
 discord.py
+pandas
+matpotlib
+sklearn
+openai
+google-api-python-client
+nltk
+firebase-admin
